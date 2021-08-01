@@ -5,8 +5,10 @@ use self::LiteralKind::*;
 use self::TokenKind::*;
 
 pub fn tokenize(mut code: &str) -> impl Iterator<Item = Token> + Clone + '_ {
+    let mut index = 0;
     std::iter::from_fn(move || {
-        let token = next_token(code);
+        let token = next_token(code, index);
+        index += token.len;
         if token.kind == Eof {
             None
         } else {
@@ -16,7 +18,7 @@ pub fn tokenize(mut code: &str) -> impl Iterator<Item = Token> + Clone + '_ {
     })
 }
 
-fn next_token(code: &str) -> Token {
+fn next_token(code: &str, index: usize) -> Token {
     let mut chars = code.chars().peekable();
     let mut consumed = 1;
     let token_kind = match chars.next() {
@@ -140,7 +142,8 @@ fn next_token(code: &str) -> Token {
         Some(_) => Unknown,
         _ => Eof,
     };
-    Token::new(token_kind, consumed)
+
+    Token::new(token_kind, index, consumed)
 }
 
 fn consume_while(
@@ -215,12 +218,13 @@ pub fn is_ident_continue(c: char) -> bool {
 #[derive(Debug, Clone)]
 pub struct Token {
     pub kind: TokenKind,
+    pub index: usize,
     pub len: usize,
 }
 
 impl Token {
-    fn new(kind: TokenKind, len: usize) -> Token {
-        Token { kind, len }
+    fn new(kind: TokenKind, index: usize, len: usize) -> Token {
+        Token { kind, index, len }
     }
 }
 
