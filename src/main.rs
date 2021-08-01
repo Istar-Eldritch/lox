@@ -1,10 +1,12 @@
 mod ast;
+mod interpreter;
 mod lexer;
 mod parser;
 
 use clap::Clap;
 
 use crate::lexer::TokenKind;
+use interpreter::Interpretable;
 
 #[derive(Clap, Debug)]
 #[clap(name = "lox")]
@@ -43,7 +45,9 @@ fn execute(code: &mut str) -> Result<(), ()> {
     let mut tokens = lexer::tokenize(code)
         .filter(|t| t.kind != TokenKind::Whitespace)
         .peekable();
-    let ast = parser::parse(&mut tokens);
-    println!("{:?}", ast);
+    let ast = parser::parse(&mut tokens).map_err(|e| {
+        println!("{}", e);
+    })?;
+    println!("{:?}", ast.eval());
     Ok(())
 }
