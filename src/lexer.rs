@@ -29,6 +29,8 @@ fn next_token(code: &str) -> Token {
         Some('-') => Minus,
         Some('+') => Plus,
         Some(';') => Semicolon,
+        Some(':') => Colon,
+        Some('?') => Interrogation,
         Some('/') => {
             if let Some('/') = chars.peek() {
                 let (c, _, _) = consume_while(&mut chars, |c| c != '\u{000A}');
@@ -232,6 +234,8 @@ pub enum TokenKind {
     Comma,
     Dot,
     Semicolon,
+    Colon,
+    Interrogation,
 
     Minus,
     Plus,

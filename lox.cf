@@ -2,7 +2,9 @@
 
 entrypoints Expr;
 
-Expr.     expr    ::= comma ;
+Expr.     expr    ::= ternary ;
+
+Ternary.  ternary ::= comma "?" ternary ":" ternary ;
 
 Comma.    comma   ::= eq ("," eq)* ;
 

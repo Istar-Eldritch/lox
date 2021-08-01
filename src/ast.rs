@@ -11,6 +11,11 @@ pub enum Expr {
         operator: UnaryOp,
         right: Box<Expr>,
     },
+    Ternary {
+        condition: Box<Expr>,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
 }
 
 #[derive(Debug, PartialEq)]

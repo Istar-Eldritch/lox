@@ -3,14 +3,13 @@ use std::{
     iter::Peekable,
 };
 
-use crate::ast;
 use crate::lexer;
+use crate::{ast, lexer::TokenKind};
 
 impl TryFrom<lexer::Token> for ast::BinOp {
     type Error = String; // Token is not a valid BinOp
     fn try_from(t: lexer::Token) -> Result<Self, Self::Error> {
         use ast::BinOp;
-        use lexer::TokenKind;
         let op = match t.kind {
             TokenKind::Equals => BinOp::Equals,
             TokenKind::NotEquals => BinOp::NotEquals,
@@ -34,7 +33,6 @@ impl TryFrom<lexer::Token> for ast::UnaryOp {
 
     fn try_from(t: lexer::Token) -> Result<Self, Self::Error> {
         use ast::UnaryOp;
-        use lexer::TokenKind;
         let op = match t.kind {
             TokenKind::Minus => UnaryOp::Negate,
             TokenKind::Bang => UnaryOp::LogicNegate,
@@ -53,7 +51,34 @@ pub fn parse<P: Iterator<Item = lexer::Token> + Clone>(
 fn expression(
     tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
 ) -> Result<ast::Expr, String> {
-    comma(tokens)
+    ternary(tokens)
+}
+
+fn ternary(
+    tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
+) -> Result<ast::Expr, String> {
+    let mut expr = comma(tokens)?;
+    if let Some(t) = tokens.peek() {
+        if t.kind == TokenKind::Interrogation {
+            tokens.next();
+            let left = ternary(tokens)?;
+            if let Some(t) = tokens.next() {
+                if t.kind == TokenKind::Colon {
+                    let right = ternary(tokens)?;
+                    expr = ast::Expr::Ternary {
+                        condition: expr.into(),
+                        left: left.into(),
+                        right: right.into(),
+                    };
+                } else {
+                    Err(String::from("Ternary operation missing one branch"))?;
+                }
+            } else {
+                Err(String::from("Ternary operation missing one branch"))?;
+            }
+        }
+    };
+    Ok(expr)
 }
 
 fn comma(
@@ -238,6 +263,99 @@ mod tests {
             .into(),
             operator: Comma,
             right: Literal(Number(3.0)).into(),
+        };
+
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn parse_ternary_expression() {
+        // simple
+        let mut tokens = tokenize("true ? 1 : 2")
+            .filter(|t| t.kind != TokenKind::Whitespace)
+            .peekable();
+        let ast = parse(&mut tokens).unwrap();
+        let expected = Ternary {
+            condition: Literal(True).into(),
+            left: Literal(Number(1.0)).into(),
+            right: Literal(Number(2.0)).into(),
+        };
+
+        assert_eq!(ast, expected);
+
+        // eq on condition
+        let mut tokens = tokenize("1 == 2 ? 1 : 2")
+            .filter(|t| t.kind != TokenKind::Whitespace)
+            .peekable();
+        let ast = parse(&mut tokens).unwrap();
+        let expected = Ternary {
+            condition: Binary {
+                left: Literal(Number(1.0)).into(),
+                operator: Equals.into(),
+                right: Literal(Number(2.0)).into(),
+            }
+            .into(),
+            left: Literal(Number(1.0)).into(),
+            right: Literal(Number(2.0)).into(),
+        };
+
+        assert_eq!(ast, expected);
+
+        // binary op on branches
+        let mut tokens = tokenize("true ? 1 - 2 : 1 + 2")
+            .filter(|t| t.kind != TokenKind::Whitespace)
+            .peekable();
+        let ast = parse(&mut tokens).unwrap();
+        let expected = Ternary {
+            condition: Literal(True).into(),
+            left: Binary {
+                left: Literal(Number(1.0)).into(),
+                operator: Substraction.into(),
+                right: Literal(Number(2.0)).into(),
+            }
+            .into(),
+            right: Binary {
+                left: Literal(Number(1.0)).into(),
+                operator: Sum.into(),
+                right: Literal(Number(2.0)).into(),
+            }
+            .into(),
+        };
+
+        assert_eq!(ast, expected);
+
+        // nested right
+        let mut tokens = tokenize("true ? 1 : 2 ? 3 : 4")
+            .filter(|t| t.kind != TokenKind::Whitespace)
+            .peekable();
+        let ast = parse(&mut tokens).unwrap();
+        let expected = Ternary {
+            condition: Literal(True).into(),
+            left: Literal(Number(1.0)).into(),
+            right: Ternary {
+                condition: Literal(Number(2.0)).into(),
+                left: Literal(Number(3.0)).into(),
+                right: Literal(Number(4.0)).into(),
+            }
+            .into(),
+        };
+
+        assert_eq!(ast, expected);
+
+        // nested left
+        let mut tokens = tokenize("true ? 1 ? 2 : 3 : 4")
+            .filter(|t| t.kind != TokenKind::Whitespace)
+            .peekable();
+        let ast = parse(&mut tokens).unwrap();
+        let expected = Ternary {
+            condition: Literal(True).into(),
+            left: Ternary {
+                condition: Literal(Number(1.0)).into(),
+                left: Literal(Number(2.0)).into(),
+                right: Literal(Number(3.0)).into(),
+            }
+            .into(),
+            right: Literal(Number(4.0)).into(),
         };
 
         assert_eq!(ast, expected);
