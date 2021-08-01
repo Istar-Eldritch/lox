@@ -1,7 +1,9 @@
-use crate::ast::{BinOp, Expr, Expr::*, Literal};
+use std::fmt::Display;
+
+use crate::ast::{BinOp, Expr, Literal};
 
 pub trait Interpretable {
-    fn eval(&self) -> Result<LoxResult, String>;
+    fn eval(&self) -> Result<LoxResult, LoxRuntimeError>;
 }
 
 #[derive(PartialEq, PartialOrd, Debug)]
@@ -10,6 +12,25 @@ pub enum LoxResult {
     Str(String),
     Bool(bool),
     Nil,
+}
+
+#[derive(Debug)]
+pub struct LoxRuntimeError {
+    message: String,
+    index: usize,
+    len: usize,
+}
+
+impl std::error::Error for LoxRuntimeError {}
+
+impl Display for LoxRuntimeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Error: {} at {} until {}",
+            self.message, self.index, self.len
+        )
+    }
 }
 
 impl LoxResult {
@@ -46,42 +67,66 @@ enum LoxType {
 }
 
 impl Interpretable for Expr {
-    fn eval(&self) -> std::result::Result<LoxResult, String> {
+    fn eval(&self) -> std::result::Result<LoxResult, LoxRuntimeError> {
         let res = match self {
-            Literal(l) => match l {
+            Self::Literal {
+                value,
+                index: _,
+                len: _,
+            } => match value {
                 Literal::Number(n) => LoxResult::Number(*n),
                 Literal::Str(n) => LoxResult::Str(n.clone()),
                 Literal::True => LoxResult::Bool(true),
                 Literal::False => LoxResult::Bool(false),
                 Literal::Nil => LoxResult::Nil,
             },
-            Self::Unary { operator, right } => {
+            Self::Unary {
+                operator,
+                right,
+                index,
+                len,
+            } => {
                 let right = right.eval()?;
 
                 match operator {
                     crate::ast::UnaryOp::LogicNegate => match right {
                         LoxResult::Bool(b) => LoxResult::Bool(!b),
-                        _ => Err(format!("Cant negate type {:?}", right.get_type()))?,
+                        _ => Err(LoxRuntimeError {
+                            message: format!("Cant negate type {:?}", right.get_type()),
+                            index: *index,
+                            len: *len,
+                        })?,
                     },
                     crate::ast::UnaryOp::Negate => match right {
                         LoxResult::Number(n) => LoxResult::Number(-n),
-                        _ => Err(format!("Cant negate type {:?}", right.get_type()))?,
+                        _ => Err(LoxRuntimeError {
+                            message: format!("Cant negate type {:?}", right.get_type()),
+                            index: *index,
+                            len: *len,
+                        })?,
                     },
                 }
             }
-            Self::Grouping(e) => e.eval()?,
+            Self::Grouping {
+                expr,
+                index: _,
+                len: _,
+            } => expr.eval()?,
             Self::Ternary {
                 condition,
                 left,
                 right,
+                index,
+                len,
             } => {
                 let condition = condition.eval()?;
                 let condition = match condition {
                     LoxResult::Bool(b) => b,
-                    r => Err(format!(
+                    r => Err(LoxRuntimeError {
+                        message: format!(
                         "The condition of a ternary operator must resolve to a boolean but was {:?}",
                         r.get_type()
-                    ))?,
+                    ), index: *index, len: *len})?,
                 };
                 if condition {
                     left.eval()?
@@ -93,22 +138,31 @@ impl Interpretable for Expr {
                 left,
                 right,
                 operator,
+                index,
+                len,
             } => {
                 let l = left.eval()?;
                 let r = right.eval()?;
                 if l.get_type() != r.get_type() {
-                    Err(format!(
-                        "Cant operate on {:?} and {:?}",
-                        l.get_type(),
-                        r.get_type(),
-                    ))?;
+                    Err(LoxRuntimeError {
+                        message: format!(
+                            "Cant operate on {:?} and {:?}",
+                            l.get_type(),
+                            r.get_type(),
+                        ),
+                        index: *index,
+                        len: *len,
+                    })?;
                 }
                 let res = match operator {
-                    // TODO: This should handle concat of strings too
                     BinOp::Sum => match l.get_type() {
                         LoxType::Number => LoxResult::Number(l.unwrap_number() + r.unwrap_number()),
                         LoxType::Str => LoxResult::Str(l.unwrap_string() + &r.unwrap_string()),
-                        n => Err(format!("Can't perform Sum on {:?}", n))?,
+                        n => Err(LoxRuntimeError {
+                            message: format!("Can't perform Sum on {:?}", n),
+                            index: *index,
+                            len: *len,
+                        })?,
                     },
                     BinOp::Substraction => LoxResult::Number(l.unwrap_number() - r.unwrap_number()),
                     BinOp::Product => LoxResult::Number(l.unwrap_number() * r.unwrap_number()),

@@ -6,7 +6,7 @@ mod parser;
 use clap::Clap;
 
 use crate::lexer::TokenKind;
-use interpreter::Interpretable;
+use interpreter::{Interpretable, LoxResult};
 
 #[derive(Clap, Debug)]
 #[clap(name = "lox")]
@@ -37,17 +37,18 @@ fn repl() {
         let mut buffer = String::new();
         stdin.read_line(&mut buffer).expect("Error reading input");
 
-        execute(&mut buffer).unwrap();
+        execute(&mut buffer)
+            .map(|r| {
+                println!("{:?}", r);
+            })
+            .unwrap_or_else(|e| println!("{:?}", e));
     }
 }
 
-fn execute(code: &mut str) -> Result<(), ()> {
+fn execute(code: &mut str) -> Result<LoxResult, Box<dyn std::error::Error>> {
     let mut tokens = lexer::tokenize(code)
         .filter(|t| t.kind != TokenKind::Whitespace)
         .peekable();
-    let ast = parser::parse(&mut tokens).map_err(|e| {
-        println!("{}", e);
-    })?;
-    println!("{:?}", ast.eval());
-    Ok(())
+    let res = parser::parse(&mut tokens).map(|ast| ast.eval())??;
+    Ok(res)
 }

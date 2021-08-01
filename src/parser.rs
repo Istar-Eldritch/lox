@@ -1,10 +1,30 @@
 use std::{
     convert::{TryFrom, TryInto},
+    fmt::Display,
     iter::Peekable,
 };
 
 use crate::lexer;
 use crate::{ast, lexer::TokenKind};
+
+#[derive(Debug)]
+pub struct LoxSyntaxError {
+    message: String,
+    index: usize,
+    len: usize,
+}
+
+impl std::error::Error for LoxSyntaxError {}
+
+impl Display for LoxSyntaxError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "Error: {} at {} until {}",
+            self.message, self.index, self.len
+        )
+    }
+}
 
 impl TryFrom<lexer::Token> for ast::BinOp {
     type Error = String; // Token is not a valid BinOp
@@ -44,19 +64,19 @@ impl TryFrom<lexer::Token> for ast::UnaryOp {
 
 pub fn parse<P: Iterator<Item = lexer::Token> + Clone>(
     tokens: &mut Peekable<P>,
-) -> Result<ast::Expr, String> {
+) -> Result<ast::Expr, LoxSyntaxError> {
     expression(tokens)
 }
 
 fn expression(
     tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
-) -> Result<ast::Expr, String> {
+) -> Result<ast::Expr, LoxSyntaxError> {
     ternary(tokens)
 }
 
 fn ternary(
     tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
-) -> Result<ast::Expr, String> {
+) -> Result<ast::Expr, LoxSyntaxError> {
     let mut expr = comma(tokens)?;
     if let Some(t) = tokens.peek() {
         if t.kind == TokenKind::Interrogation {
@@ -75,10 +95,20 @@ fn ternary(
                         len,
                     };
                 } else {
-                    Err(String::from("Ternary operation missing one branch"))?;
+                    Err(LoxSyntaxError {
+                        message: String::from(
+                            "Ternary operation missing one branch, expected colon instead",
+                        ),
+                        index: t.index,
+                        len: t.len,
+                    })?;
                 }
             } else {
-                Err(String::from("Ternary operation missing one branch"))?;
+                Err(LoxSyntaxError {
+                    message: String::from("Ternary operation missing one branch, expected colon"),
+                    index: left.index(),
+                    len: left.len(),
+                })?;
             }
         }
     };
@@ -87,10 +117,10 @@ fn ternary(
 
 fn comma(
     tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
-) -> Result<ast::Expr, String> {
+) -> Result<ast::Expr, LoxSyntaxError> {
     let mut expr = equality(tokens)?;
     while matches_any(tokens, vec![lexer::TokenKind::Comma]) {
-        let operator: ast::BinOp = tokens.next().unwrap().try_into()?;
+        let operator: ast::BinOp = tokens.next().unwrap().try_into().unwrap();
         let right = equality(tokens)?;
         let index = expr.index();
         let len = right.index() + right.len() - expr.index();
@@ -107,11 +137,11 @@ fn comma(
 
 fn equality(
     tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
-) -> Result<ast::Expr, String> {
+) -> Result<ast::Expr, LoxSyntaxError> {
     use crate::lexer::TokenKind::*;
     let mut expr = comparison(tokens)?;
     while matches_any(tokens, vec![NotEquals, Equals]) {
-        let operator: ast::BinOp = tokens.next().unwrap().try_into()?;
+        let operator: ast::BinOp = tokens.next().unwrap().try_into().unwrap();
         let right: ast::Expr = comparison(tokens)?;
         let index = expr.index();
         let len = right.index() + right.len() - expr.index();
@@ -128,14 +158,14 @@ fn equality(
 
 fn comparison(
     tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
-) -> Result<ast::Expr, String> {
+) -> Result<ast::Expr, LoxSyntaxError> {
     use crate::lexer::TokenKind::*;
     let mut expr = term(tokens)?;
     while matches_any(
         tokens,
         vec![GreaterThan, GreaterThanEquals, LessThan, LessThanEquals],
     ) {
-        let operator: ast::BinOp = tokens.next().unwrap().try_into()?;
+        let operator: ast::BinOp = tokens.next().unwrap().try_into().unwrap();
         let right: ast::Expr = term(tokens)?;
         let index = expr.index();
         let len = right.index() + right.len() - expr.index();
@@ -152,11 +182,11 @@ fn comparison(
 
 fn term(
     tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
-) -> Result<ast::Expr, String> {
+) -> Result<ast::Expr, LoxSyntaxError> {
     use crate::lexer::TokenKind::*;
     let mut expr = factor(tokens)?;
     while matches_any(tokens, vec![Minus, Plus]) {
-        let operator: ast::BinOp = tokens.next().unwrap().try_into()?;
+        let operator: ast::BinOp = tokens.next().unwrap().try_into().unwrap();
         let right: ast::Expr = factor(tokens)?;
         let index = expr.index();
         let len = right.index() + right.len() - expr.index();
@@ -173,11 +203,11 @@ fn term(
 
 fn factor(
     tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
-) -> Result<ast::Expr, String> {
+) -> Result<ast::Expr, LoxSyntaxError> {
     use crate::lexer::TokenKind::*;
     let mut expr = unary(tokens)?;
     while matches_any(tokens, vec![Slash, Star]) {
-        let operator: ast::BinOp = tokens.next().unwrap().try_into()?;
+        let operator: ast::BinOp = tokens.next().unwrap().try_into().unwrap();
         let right: ast::Expr = unary(tokens)?;
         let index = expr.index();
         let len = right.index() + right.len() - expr.index();
@@ -194,12 +224,12 @@ fn factor(
 
 fn unary(
     tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
-) -> Result<ast::Expr, String> {
+) -> Result<ast::Expr, LoxSyntaxError> {
     use crate::lexer::TokenKind::*;
     if matches_any(tokens, vec![Bang, Minus]) {
         let op_token = tokens.next().unwrap();
         let index = op_token.index;
-        let operator: ast::UnaryOp = op_token.try_into()?;
+        let operator: ast::UnaryOp = op_token.try_into().unwrap();
         let right = unary(tokens)?;
         let len = right.index() + right.len() - index;
 
@@ -216,7 +246,7 @@ fn unary(
 
 fn primary(
     tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
-) -> Result<ast::Expr, String> {
+) -> Result<ast::Expr, LoxSyntaxError> {
     use crate::lexer::{KeywordKind::*, LiteralKind::*, TokenKind::*};
     if let Some(t) = tokens.next() {
         let expr = match t.kind {
@@ -262,25 +292,37 @@ fn primary(
                             len,
                         }
                     } else {
-                        Err(format!(
-                            "The token {:?} was not expected, a ')' was expected",
-                            t.kind,
-                        ))?
+                        Err(LoxSyntaxError {
+                            message: format!(
+                                "The token {:?} was not expected, a ')' was expected",
+                                t.kind,
+                            ),
+                            index: t.index,
+                            len: t.len,
+                        })?
                     }
                 } else {
-                    Err(String::from("Expected ')' after grouped expression"))?
+                    Err(LoxSyntaxError {
+                        message: String::from("Expected ')' after grouped expression"),
+                        index: expr.index(),
+                        len: expr.len(),
+                    })?
                 }
             }
-            tk => Err(format!(
-                "lexer::Token \"{:?}\" at {} does not match a valid expression",
-                tk, t.len
-            ))?,
+            tk => Err(LoxSyntaxError {
+                message: format!("Token \"{:?}\" does not match a valid expression", tk),
+                index: t.index,
+                len: t.len,
+            })?,
         };
         Ok(expr)
     } else {
-        Err(String::from(
-            "The expression is does not have a leaf node at",
-        ))
+        // TODO: This should be captured and managed acordingly, the index and len are invalid (maybe a different type of error?)
+        Err(LoxSyntaxError {
+            message: String::from("The expression is does not have a leaf node"),
+            index: 0,
+            len: 0,
+        })
     }
 }
 
