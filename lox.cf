@@ -2,7 +2,9 @@
 
 entrypoints Expr;
 
-Expr.     expr    ::= eq ;
+Expr.     expr    ::= comma ;
+
+Comma.    comma   ::= eq ("," eq)* ;
 
 Eq.       eq      ::= comp ( ("!=" | "==") comp )* ;
 

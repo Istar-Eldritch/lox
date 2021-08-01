@@ -22,6 +22,7 @@ impl TryFrom<lexer::Token> for ast::BinOp {
             TokenKind::Plus => BinOp::Sum,
             TokenKind::Star => BinOp::Product,
             TokenKind::Slash => BinOp::Division,
+            TokenKind::Comma => BinOp::Comma,
             tk => Err(format!("{:?} is not a valid binary operator", tk))?,
         };
         Ok(op)
@@ -52,7 +53,23 @@ pub fn parse<P: Iterator<Item = lexer::Token> + Clone>(
 fn expression(
     tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
 ) -> Result<ast::Expr, String> {
-    equality(tokens)
+    comma(tokens)
+}
+
+fn comma(
+    tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
+) -> Result<ast::Expr, String> {
+    let mut expr = equality(tokens)?;
+    while matches_any(tokens, vec![lexer::TokenKind::Comma]) {
+        let operator: ast::BinOp = tokens.next().unwrap().try_into()?;
+        let right = equality(tokens)?;
+        expr = ast::Expr::Binary {
+            left: expr.into(),
+            operator,
+            right: right.into(),
+        };
+    }
+    Ok(expr)
 }
 
 fn equality(
@@ -203,39 +220,26 @@ fn matches_any<P: Iterator<Item = lexer::Token> + Clone>(
 #[cfg(test)]
 mod tests {
     use super::parse;
-    use crate::ast;
-    use crate::lexer;
+    use crate::ast::{BinOp::*, Expr::*, Literal::*};
+    use crate::lexer::{tokenize, TokenKind};
 
     #[test]
-    fn print_expression() {
-        use ast::BinOp::*;
-        use ast::Expr::*;
-        use ast::Literal::*;
-        let expr = Binary {
-            left: Grouping(
-                Binary {
-                    left: Literal(Number(2.0)).into(),
-                    operator: Sum,
-                    right: Literal(Number(3.0)).into(),
-                }
-                .into(),
-            )
+    fn parse_comma_operator() {
+        let mut tokens = tokenize("1,2,3")
+            .filter(|t| t.kind != TokenKind::Whitespace)
+            .peekable();
+        let ast = parse(&mut tokens).unwrap();
+        let expected = Binary {
+            left: Binary {
+                left: Literal(Number(1.0)).into(),
+                operator: Comma,
+                right: Literal(Number(2.0)).into(),
+            }
             .into(),
-            operator: Product,
-            right: Literal(Number(5.0)).into(),
+            operator: Comma,
+            right: Literal(Number(3.0)).into(),
         };
 
-        println!("{:?}", expr);
-    }
-
-    #[test]
-    fn parse_test() {
-        use lexer::{Token, TokenKind::Whitespace};
-        let mut tokens = lexer::tokenize("3.1321 * 8")
-            .filter(|t| t.kind != Whitespace)
-            .peekable();
-        println!("{:?}", tokens.clone().collect::<Vec<Token>>());
-        let res = parse(&mut tokens);
-        println!("{:?}", res);
+        assert_eq!(ast, expected);
     }
 }

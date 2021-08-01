@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Expr {
     Binary {
         left: Box<Expr>,
@@ -13,7 +13,7 @@ pub enum Expr {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum BinOp {
     Sum,
     Substraction,
@@ -25,9 +25,10 @@ pub enum BinOp {
     GreaterThanEquals,
     LessThan,
     LessThanEquals,
+    Comma,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Literal {
     Str(String),
     Number(f64),
@@ -36,7 +37,7 @@ pub enum Literal {
     Nil,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum UnaryOp {
     Negate,
     LogicNegate,
