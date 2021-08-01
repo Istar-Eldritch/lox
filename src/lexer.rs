@@ -4,7 +4,7 @@ use self::KeywordKind::*;
 use self::LiteralKind::*;
 use self::TokenKind::*;
 
-pub fn tokenize(mut code: &str) -> impl Iterator<Item = Token> + '_ {
+pub fn tokenize(mut code: &str) -> impl Iterator<Item = Token> + Clone + '_ {
     std::iter::from_fn(move || {
         let token = next_token(code);
         if token.kind == Eof {
@@ -31,7 +31,7 @@ fn next_token(code: &str) -> Token {
         Some(';') => Semicolon,
         Some('/') => {
             if let Some('/') = chars.peek() {
-                let (c, _) = consume_while(&mut chars, |c| c != '\u{000A}');
+                let (c, _, _) = consume_while(&mut chars, |c| c != '\u{000A}');
                 consumed += c;
                 Comment
             } else {
@@ -40,26 +40,69 @@ fn next_token(code: &str) -> Token {
         }
         Some('*') => Star,
         Some('"') => {
-            let (c, terminated) = consume_while(&mut chars, |c| c != '"');
+            let (c, terminated, value) = consume_while(&mut chars, |c| c != '"');
             consumed += c;
             // Consume while does not consume the ending character '"', so we have do do it here
             if terminated {
                 chars.next();
                 consumed += 1;
             }
-            Literal(Str { terminated })
+            Literal(Str { terminated, value })
         }
         Some('!') => {
             if let Some('=') = chars.peek() {
+                chars.next();
+                consumed += 1;
                 NotEquals
             } else {
                 Bang
             }
         }
-        Some('=') => Assign,
+        Some('=') => {
+            if let Some(c) = chars.peek() {
+                if *c == '=' {
+                    chars.next();
+                    consumed += 1;
+                    Equals
+                } else {
+                    Assign
+                }
+            } else {
+                Assign
+            }
+        }
+        Some('<') => {
+            if let Some(c) = chars.peek() {
+                if *c == '=' {
+                    chars.next();
+                    consumed += 1;
+                    LessThanEquals
+                } else {
+                    LessThan
+                }
+            } else {
+                LessThan
+            }
+        }
+        Some('>') => {
+            if let Some(c) = chars.peek() {
+                if *c == '=' {
+                    chars.next();
+                    consumed += 1;
+                    GreaterThanEquals
+                } else {
+                    GreaterThan
+                }
+            } else {
+                GreaterThan
+            }
+        }
         Some(c) if is_digit(c) => {
-            let (c, _) = consume_while(&mut chars, is_digit);
-            consumed += c;
+            let (s, _, value) = consume_while(&mut chars, is_digit);
+            let mut str_number = String::with_capacity(s + 1);
+            str_number.push(c);
+            str_number.push_str(&value);
+            consumed += s;
             let mut foreview = chars.clone();
             if let Some(c) = chars.peek() {
                 if *c == '.' {
@@ -67,21 +110,23 @@ fn next_token(code: &str) -> Token {
                     if let Some(c) = foreview.peek() {
                         if is_digit(*c) {
                             chars.next();
-                            let (c, _) = consume_while(&mut chars, is_digit);
+                            let (c, _, value) = consume_while(&mut chars, is_digit);
+                            str_number.push('.');
+                            str_number.push_str(&value);
                             consumed += c + 1;
                         }
                     }
                 }
             }
-            Literal(Number)
+            Literal(Number(str_number.parse().unwrap()))
         }
         Some(c) if is_whitespace(c) => {
-            let (c, _) = consume_while(&mut chars, is_whitespace);
+            let (c, _, _) = consume_while(&mut chars, is_whitespace);
             consumed += c;
             Whitespace
         }
         Some(c) if is_ident_start(c) => {
-            let (c, _) = consume_while(&mut chars, is_ident_continue);
+            let (c, _, _) = consume_while(&mut chars, is_ident_continue);
             consumed += c;
             let s = &code[..consumed];
             if let Ok(k) = KeywordKind::try_from(s) {
@@ -99,19 +144,21 @@ fn next_token(code: &str) -> Token {
 fn consume_while(
     chars: &mut Peekable<impl Iterator<Item = char>>,
     f: impl Fn(char) -> bool,
-) -> (usize, bool) {
+) -> (usize, bool, String) {
     let mut consumed = 0;
     let mut terminated = false;
+    let mut value = String::with_capacity(8);
     while let Some(c) = chars.peek() {
         if f(*c) {
-            chars.next();
+            let c = chars.next().unwrap();
+            value.push(c);
             consumed += 1;
         } else {
             terminated = true;
             break;
         }
     }
-    (consumed, terminated)
+    (consumed, terminated, value)
 }
 
 pub fn is_digit(c: char) -> bool {
@@ -163,7 +210,7 @@ pub fn is_ident_continue(c: char) -> bool {
 
 /// It doesn't contain information about data that has been parsed,
 /// only the type of the token and its size.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
     pub kind: TokenKind,
     pub len: usize,
@@ -175,11 +222,8 @@ impl Token {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TokenKind {
-    // Utils
-    Whitespace,
-
     // Single-char tokens
     LeftParen,
     RightParen,
@@ -187,25 +231,37 @@ pub enum TokenKind {
     RightBrace,
     Comma,
     Dot,
+    Semicolon,
+
     Minus,
     Plus,
-    Semicolon,
     Slash,
     Star,
+
     Bang,
     Assign,
 
+    // Equality operators
+    Equals,
     NotEquals,
+    LessThan,
+    GreaterThan,
+    LessThanEquals,
+    GreaterThanEquals,
 
+    // Lexemes
     Comment,
     Identifier,
     Literal(LiteralKind),
     Keyword(KeywordKind),
+
+    // Other
+    Whitespace,
     Unknown,
     Eof,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum KeywordKind {
     // Keywords
     And,
@@ -252,8 +308,8 @@ impl TryFrom<&str> for KeywordKind {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum LiteralKind {
-    Str { terminated: bool },
-    Number,
+    Str { terminated: bool, value: String },
+    Number(f64),
 }
