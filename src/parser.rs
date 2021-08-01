@@ -65,10 +65,14 @@ fn ternary(
             if let Some(t) = tokens.next() {
                 if t.kind == TokenKind::Colon {
                     let right = ternary(tokens)?;
+                    let index = expr.index();
+                    let len = right.index() + right.len() - index;
                     expr = ast::Expr::Ternary {
                         condition: expr.into(),
                         left: left.into(),
                         right: right.into(),
+                        index,
+                        len,
                     };
                 } else {
                     Err(String::from("Ternary operation missing one branch"))?;
@@ -88,10 +92,14 @@ fn comma(
     while matches_any(tokens, vec![lexer::TokenKind::Comma]) {
         let operator: ast::BinOp = tokens.next().unwrap().try_into()?;
         let right = equality(tokens)?;
+        let index = expr.index();
+        let len = right.index() + right.len() - expr.index();
         expr = ast::Expr::Binary {
             left: expr.into(),
             operator,
             right: right.into(),
+            index,
+            len,
         };
     }
     Ok(expr)
@@ -105,10 +113,14 @@ fn equality(
     while matches_any(tokens, vec![NotEquals, Equals]) {
         let operator: ast::BinOp = tokens.next().unwrap().try_into()?;
         let right: ast::Expr = comparison(tokens)?;
+        let index = expr.index();
+        let len = right.index() + right.len() - expr.index();
         expr = ast::Expr::Binary {
             left: expr.into(),
             operator,
             right: right.into(),
+            index,
+            len,
         };
     }
     Ok(expr)
@@ -125,10 +137,14 @@ fn comparison(
     ) {
         let operator: ast::BinOp = tokens.next().unwrap().try_into()?;
         let right: ast::Expr = term(tokens)?;
+        let index = expr.index();
+        let len = right.index() + right.len() - expr.index();
         expr = ast::Expr::Binary {
             left: expr.into(),
             operator,
             right: right.into(),
+            index,
+            len,
         };
     }
     Ok(expr)
@@ -142,10 +158,14 @@ fn term(
     while matches_any(tokens, vec![Minus, Plus]) {
         let operator: ast::BinOp = tokens.next().unwrap().try_into()?;
         let right: ast::Expr = factor(tokens)?;
+        let index = expr.index();
+        let len = right.index() + right.len() - expr.index();
         expr = ast::Expr::Binary {
             left: expr.into(),
             operator,
             right: right.into(),
+            index,
+            len,
         };
     }
     Ok(expr)
@@ -159,10 +179,14 @@ fn factor(
     while matches_any(tokens, vec![Slash, Star]) {
         let operator: ast::BinOp = tokens.next().unwrap().try_into()?;
         let right: ast::Expr = unary(tokens)?;
+        let index = expr.index();
+        let len = right.index() + right.len() - expr.index();
         expr = ast::Expr::Binary {
             left: expr.into(),
             operator,
             right: right.into(),
+            index,
+            len,
         };
     }
     Ok(expr)
@@ -173,11 +197,17 @@ fn unary(
 ) -> Result<ast::Expr, String> {
     use crate::lexer::TokenKind::*;
     if matches_any(tokens, vec![Bang, Minus]) {
-        let operator: ast::UnaryOp = tokens.next().unwrap().try_into()?;
+        let op_token = tokens.next().unwrap();
+        let index = op_token.index;
+        let operator: ast::UnaryOp = op_token.try_into()?;
         let right = unary(tokens)?;
+        let len = right.index() + right.len() - index;
+
         Ok(ast::Expr::Unary {
             operator,
             right: right.into(),
+            index,
+            len,
         })
     } else {
         primary(tokens)
@@ -190,21 +220,47 @@ fn primary(
     use crate::lexer::{KeywordKind::*, LiteralKind::*, TokenKind::*};
     if let Some(t) = tokens.next() {
         let expr = match t.kind {
-            Keyword(True) => ast::Expr::Literal(ast::Literal::True),
-            Keyword(False) => ast::Expr::Literal(ast::Literal::False),
-            Keyword(Nil) => ast::Expr::Literal(ast::Literal::Nil),
+            Keyword(True) => ast::Expr::Literal {
+                value: ast::Literal::True,
+                index: t.index,
+                len: t.len,
+            },
+            Keyword(False) => ast::Expr::Literal {
+                value: ast::Literal::False,
+                index: t.index,
+                len: t.len,
+            },
+            Keyword(Nil) => ast::Expr::Literal {
+                value: ast::Literal::Nil,
+                index: t.index,
+                len: t.len,
+            },
             Literal(k) => match k {
-                Number(n) => ast::Expr::Literal(ast::Literal::Number(n)),
+                Number(n) => ast::Expr::Literal {
+                    value: ast::Literal::Number(n),
+                    index: t.index,
+                    len: t.len,
+                },
                 Str {
                     terminated: _,
                     value,
-                } => ast::Expr::Literal(ast::Literal::Str(value)),
+                } => ast::Expr::Literal {
+                    value: ast::Literal::Str(value),
+                    index: t.index,
+                    len: t.len,
+                },
             },
             LeftParen => {
                 let expr = expression(tokens)?;
                 if let Some(t) = tokens.next() {
                     if t.kind == RightParen {
-                        ast::Expr::Grouping(expr.into())
+                        let index = expr.index();
+                        let len = expr.len();
+                        ast::Expr::Grouping {
+                            expr: expr.into(),
+                            index,
+                            len,
+                        }
                     } else {
                         Err(format!(
                             "The token {:?} was not expected, a ')' was expected",
@@ -222,7 +278,9 @@ fn primary(
         };
         Ok(expr)
     } else {
-        Err(String::from("The expression is does not have a leaf node"))
+        Err(String::from(
+            "The expression is does not have a leaf node at",
+        ))
     }
 }
 
@@ -256,13 +314,32 @@ mod tests {
         let ast = parse(&mut tokens).unwrap();
         let expected = Binary {
             left: Binary {
-                left: Literal(Number(1.0)).into(),
+                left: Literal {
+                    value: Number(1.0),
+                    index: 0,
+                    len: 1,
+                }
+                .into(),
                 operator: Comma,
-                right: Literal(Number(2.0)).into(),
+                right: Literal {
+                    value: Number(2.0),
+                    index: 2,
+                    len: 1,
+                }
+                .into(),
+                index: 0,
+                len: 3,
             }
             .into(),
             operator: Comma,
-            right: Literal(Number(3.0)).into(),
+            right: Literal {
+                value: Number(3.0),
+                index: 4,
+                len: 1,
+            }
+            .into(),
+            index: 0,
+            len: 5,
         };
 
         assert_eq!(ast, expected);
@@ -274,11 +351,29 @@ mod tests {
         let mut tokens = tokenize("true ? 1 : 2")
             .filter(|t| t.kind != TokenKind::Whitespace)
             .peekable();
+        // println!("{:?}", tokens.clone().collect::<Vec<crate::lexer::Token>>());
         let ast = parse(&mut tokens).unwrap();
         let expected = Ternary {
-            condition: Literal(True).into(),
-            left: Literal(Number(1.0)).into(),
-            right: Literal(Number(2.0)).into(),
+            condition: Literal {
+                value: True,
+                index: 0,
+                len: 4,
+            }
+            .into(),
+            left: Literal {
+                value: Number(1.0),
+                index: 7,
+                len: 1,
+            }
+            .into(),
+            right: Literal {
+                value: Number(2.0),
+                index: 11,
+                len: 1,
+            }
+            .into(),
+            index: 0,
+            len: 12,
         };
 
         assert_eq!(ast, expected);
@@ -290,13 +385,37 @@ mod tests {
         let ast = parse(&mut tokens).unwrap();
         let expected = Ternary {
             condition: Binary {
-                left: Literal(Number(1.0)).into(),
+                left: Literal {
+                    value: Number(1.0),
+                    index: 0,
+                    len: 1,
+                }
+                .into(),
                 operator: Equals.into(),
-                right: Literal(Number(2.0)).into(),
+                right: Literal {
+                    value: Number(2.0),
+                    index: 5,
+                    len: 1,
+                }
+                .into(),
+                index: 0,
+                len: 6,
             }
             .into(),
-            left: Literal(Number(1.0)).into(),
-            right: Literal(Number(2.0)).into(),
+            left: Literal {
+                value: Number(1.0),
+                index: 9,
+                len: 1,
+            }
+            .into(),
+            right: Literal {
+                value: Number(2.0),
+                index: 13,
+                len: 1,
+            }
+            .into(),
+            index: 0,
+            len: 14,
         };
 
         assert_eq!(ast, expected);
@@ -307,19 +426,50 @@ mod tests {
             .peekable();
         let ast = parse(&mut tokens).unwrap();
         let expected = Ternary {
-            condition: Literal(True).into(),
+            condition: Literal {
+                value: True,
+                index: 0,
+                len: 4,
+            }
+            .into(),
             left: Binary {
-                left: Literal(Number(1.0)).into(),
+                left: Literal {
+                    value: Number(1.0),
+                    index: 7,
+                    len: 1,
+                }
+                .into(),
                 operator: Substraction.into(),
-                right: Literal(Number(2.0)).into(),
+                right: Literal {
+                    value: Number(2.0),
+                    index: 11,
+                    len: 1,
+                }
+                .into(),
+                index: 7,
+                len: 5,
             }
             .into(),
             right: Binary {
-                left: Literal(Number(1.0)).into(),
+                left: Literal {
+                    value: Number(1.0),
+                    index: 15,
+                    len: 1,
+                }
+                .into(),
                 operator: Sum.into(),
-                right: Literal(Number(2.0)).into(),
+                right: Literal {
+                    value: Number(2.0),
+                    index: 19,
+                    len: 1,
+                }
+                .into(),
+                index: 15,
+                len: 5,
             }
             .into(),
+            index: 0,
+            len: 20,
         };
 
         assert_eq!(ast, expected);
@@ -330,14 +480,43 @@ mod tests {
             .peekable();
         let ast = parse(&mut tokens).unwrap();
         let expected = Ternary {
-            condition: Literal(True).into(),
-            left: Literal(Number(1.0)).into(),
-            right: Ternary {
-                condition: Literal(Number(2.0)).into(),
-                left: Literal(Number(3.0)).into(),
-                right: Literal(Number(4.0)).into(),
+            condition: Literal {
+                value: True,
+                index: 0,
+                len: 4,
             }
             .into(),
+            left: Literal {
+                value: Number(1.0),
+                index: 7,
+                len: 1,
+            }
+            .into(),
+            right: Ternary {
+                condition: Literal {
+                    value: Number(2.0),
+                    index: 11,
+                    len: 1,
+                }
+                .into(),
+                left: Literal {
+                    value: Number(3.0),
+                    index: 15,
+                    len: 1,
+                }
+                .into(),
+                right: Literal {
+                    value: Number(4.0),
+                    index: 19,
+                    len: 1,
+                }
+                .into(),
+                index: 11,
+                len: 9,
+            }
+            .into(),
+            index: 0,
+            len: 20,
         };
 
         assert_eq!(ast, expected);
@@ -348,14 +527,43 @@ mod tests {
             .peekable();
         let ast = parse(&mut tokens).unwrap();
         let expected = Ternary {
-            condition: Literal(True).into(),
-            left: Ternary {
-                condition: Literal(Number(1.0)).into(),
-                left: Literal(Number(2.0)).into(),
-                right: Literal(Number(3.0)).into(),
+            condition: Literal {
+                value: True,
+                index: 0,
+                len: 4,
             }
             .into(),
-            right: Literal(Number(4.0)).into(),
+            left: Ternary {
+                condition: Literal {
+                    value: Number(1.0),
+                    index: 7,
+                    len: 1,
+                }
+                .into(),
+                left: Literal {
+                    value: Number(2.0),
+                    index: 11,
+                    len: 1,
+                }
+                .into(),
+                right: Literal {
+                    value: Number(3.0),
+                    index: 15,
+                    len: 1,
+                }
+                .into(),
+                index: 7,
+                len: 9,
+            }
+            .into(),
+            right: Literal {
+                value: Number(4.0),
+                index: 19,
+                len: 1,
+            }
+            .into(),
+            index: 0,
+            len: 20,
         };
 
         assert_eq!(ast, expected);
