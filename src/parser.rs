@@ -4,8 +4,14 @@ use std::{
     iter::Peekable,
 };
 
-use crate::lexer;
-use crate::{ast, lexer::TokenKind};
+use crate::{
+    ast,
+    lexer::{Token, TokenKind},
+};
+use crate::{
+    ast::Stmt,
+    lexer::{self, KeywordKind},
+};
 
 #[derive(Debug)]
 pub struct LoxSyntaxError {
@@ -64,8 +70,52 @@ impl TryFrom<lexer::Token> for ast::UnaryOp {
 
 pub fn parse<P: Iterator<Item = lexer::Token> + Clone>(
     tokens: &mut Peekable<P>,
-) -> Result<ast::Expr, LoxSyntaxError> {
-    expression(tokens)
+) -> Result<Vec<ast::Stmt>, LoxSyntaxError> {
+    let mut statements = Vec::new();
+    while tokens.peek().is_some() {
+        statements.push(statement(tokens)?)
+    }
+    Ok(statements)
+}
+
+fn statement(
+    tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
+) -> Result<ast::Stmt, LoxSyntaxError> {
+    match tokens.peek() {
+        Some(t) if t.kind == TokenKind::Keyword(KeywordKind::Print) => {
+            tokens.next();
+            print_statement(tokens)
+        }
+        _ => expression_statement(tokens),
+    }
+}
+
+fn print_statement(
+    tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
+) -> Result<ast::Stmt, LoxSyntaxError> {
+    let expr = expression(tokens)?;
+    match tokens.next() {
+        Some(t) if t.kind == TokenKind::Semicolon => Ok(Stmt::Print(expr)),
+        _ => Err(LoxSyntaxError {
+            message: String::from("Expected ';' after value."),
+            index: expr.index() + expr.len(),
+            len: 0,
+        }),
+    }
+}
+
+fn expression_statement(
+    tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
+) -> Result<ast::Stmt, LoxSyntaxError> {
+    let expr = expression(tokens)?;
+    match tokens.next() {
+        Some(t) if t.kind == TokenKind::Semicolon => Ok(Stmt::Expression(expr)),
+        _ => Err(LoxSyntaxError {
+            message: String::from("Expected ';' after value."),
+            index: expr.index() + expr.len(),
+            len: 0,
+        }),
+    }
 }
 
 fn expression(
@@ -344,7 +394,7 @@ fn matches_any<P: Iterator<Item = lexer::Token> + Clone>(
 
 #[cfg(test)]
 mod tests {
-    use super::parse;
+    use super::expression;
     use crate::ast::{BinOp::*, Expr::*, Literal::*};
     use crate::lexer::{tokenize, TokenKind};
 
@@ -353,7 +403,7 @@ mod tests {
         let mut tokens = tokenize("1,2,3")
             .filter(|t| t.kind != TokenKind::Whitespace)
             .peekable();
-        let ast = parse(&mut tokens).unwrap();
+        let ast = expression(&mut tokens).unwrap();
         let expected = Binary {
             left: Binary {
                 left: Literal {
@@ -394,7 +444,7 @@ mod tests {
             .filter(|t| t.kind != TokenKind::Whitespace)
             .peekable();
         // println!("{:?}", tokens.clone().collect::<Vec<crate::lexer::Token>>());
-        let ast = parse(&mut tokens).unwrap();
+        let ast = expression(&mut tokens).unwrap();
         let expected = Ternary {
             condition: Literal {
                 value: True,
@@ -424,7 +474,7 @@ mod tests {
         let mut tokens = tokenize("1 == 2 ? 1 : 2")
             .filter(|t| t.kind != TokenKind::Whitespace)
             .peekable();
-        let ast = parse(&mut tokens).unwrap();
+        let ast = expression(&mut tokens).unwrap();
         let expected = Ternary {
             condition: Binary {
                 left: Literal {
@@ -466,7 +516,7 @@ mod tests {
         let mut tokens = tokenize("true ? 1 - 2 : 1 + 2")
             .filter(|t| t.kind != TokenKind::Whitespace)
             .peekable();
-        let ast = parse(&mut tokens).unwrap();
+        let ast = expression(&mut tokens).unwrap();
         let expected = Ternary {
             condition: Literal {
                 value: True,
@@ -520,7 +570,7 @@ mod tests {
         let mut tokens = tokenize("true ? 1 : 2 ? 3 : 4")
             .filter(|t| t.kind != TokenKind::Whitespace)
             .peekable();
-        let ast = parse(&mut tokens).unwrap();
+        let ast = expression(&mut tokens).unwrap();
         let expected = Ternary {
             condition: Literal {
                 value: True,
@@ -567,7 +617,7 @@ mod tests {
         let mut tokens = tokenize("true ? 1 ? 2 : 3 : 4")
             .filter(|t| t.kind != TokenKind::Whitespace)
             .peekable();
-        let ast = parse(&mut tokens).unwrap();
+        let ast = expression(&mut tokens).unwrap();
         let expected = Ternary {
             condition: Literal {
                 value: True,

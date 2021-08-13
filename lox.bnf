@@ -1,0 +1,27 @@
+# Lox syntax definition file using EBNF
+
+program   ::= statement* EOF;
+
+statement ::= exprStmt | printStmt ;
+
+exprStmt  ::=  expr ";" ;
+
+printStmt ::= "print" expr ";";
+
+expr    ::= ternary ;
+
+ternary ::= comma "?" ternary ":" ternary ;
+
+comma   ::= eq ("," eq)* ;
+
+eq      ::= comp ( ("!=" | "==") comp )* ;
+
+comp    ::= term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
+
+term    ::= factor ( ( "-" | "+" ) factor )* ;
+
+factor  ::= unary ( ("/" | "*" ) factor )* ;
+
+unary   ::= ( "!" | "-" ) unary | primary ;
+
+primary ::= NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" ;

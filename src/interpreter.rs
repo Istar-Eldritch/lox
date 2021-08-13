@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::ast::{BinOp, Expr, Literal};
+use crate::ast::{BinOp, Expr, Literal, Stmt};
 
 pub trait Interpretable {
     fn eval(&self) -> Result<LoxResult, LoxRuntimeError>;
@@ -12,6 +12,17 @@ pub enum LoxResult {
     Str(String),
     Bool(bool),
     Nil,
+}
+
+impl Display for LoxResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        match self {
+            Self::Number(n) => write!(f, "{}", n),
+            Self::Str(s) => write!(f, "{}", s),
+            Self::Bool(b) => write!(f, "{}", b),
+            Self::Nil => write!(f, "Nil"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -64,6 +75,18 @@ enum LoxType {
     Str,
     Bool,
     Nil,
+}
+
+impl Interpretable for Stmt {
+    fn eval(&self) -> std::result::Result<LoxResult, LoxRuntimeError> {
+        match self {
+            Stmt::Expression(e) => e.eval(),
+            Stmt::Print(e) => {
+                e.eval().map(|r| println!("{}", r))?;
+                Ok(LoxResult::Nil)
+            }
+        }
+    }
 }
 
 impl Interpretable for Expr {

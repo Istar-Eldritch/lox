@@ -3,6 +3,8 @@ mod interpreter;
 mod lexer;
 mod parser;
 
+use std::io::{stderr, stdout, Write};
+
 use clap::Clap;
 
 use crate::lexer::TokenKind;
@@ -24,9 +26,12 @@ fn main() {
 }
 
 fn run_file(file_path: String) -> Result<(), ()> {
-    let code = std::fs::read_to_string(file_path).expect("Error reading file");
-    let tokens = lexer::tokenize(&code);
-    println!("{:?}", tokens.collect::<Vec<lexer::Token>>());
+    let mut code = std::fs::read_to_string(file_path).expect("Error reading file");
+    execute(&mut code).unwrap_or_else(|e| {
+        let stde = stderr();
+        let mut stdew = stde.lock();
+        stdew.write_all(&format!("{}\n", e).into_bytes()).unwrap();
+    });
     Ok(())
 }
 
@@ -37,18 +42,21 @@ fn repl() {
         let mut buffer = String::new();
         stdin.read_line(&mut buffer).expect("Error reading input");
 
-        execute(&mut buffer)
-            .map(|r| {
-                println!("{:?}", r);
-            })
-            .unwrap_or_else(|e| println!("{:?}", e));
+        execute(&mut buffer).unwrap_or_else(|e| {
+            let stde = stderr();
+            let mut stdew = stde.lock();
+            stdew.write_all(&format!("{}\n", e).into_bytes()).unwrap();
+        });
     }
 }
 
-fn execute(code: &mut str) -> Result<LoxResult, Box<dyn std::error::Error>> {
+fn execute(code: &mut str) -> Result<(), Box<dyn std::error::Error>> {
     let mut tokens = lexer::tokenize(code)
         .filter(|t| t.kind != TokenKind::Whitespace)
         .peekable();
-    let res = parser::parse(&mut tokens).map(|ast| ast.eval())??;
-    Ok(res)
+    let ast = parser::parse(&mut tokens)?;
+    for stmt in ast {
+        stmt.eval()?;
+    }
+    Ok(())
 }
