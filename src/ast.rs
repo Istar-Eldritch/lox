@@ -3,6 +3,7 @@ pub enum Stmt {
     Expression(Expr),
     Print(Expr),
     Variable(String, Option<Expr>),
+    Block(Vec<Stmt>),
 }
 
 #[derive(Debug, PartialEq)]

@@ -140,8 +140,32 @@ fn statement(
             tokens.next();
             print_statement(tokens)
         }
+        Some(t) if t.kind == TokenKind::LeftBrace => Ok(Stmt::Block(block_statement(tokens)?)),
         _ => expression_statement(tokens),
     }
+}
+
+fn block_statement(
+    tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
+) -> Result<Vec<ast::Stmt>, LoxSyntaxError> {
+    let mut stmts: Vec<ast::Stmt> = Vec::new();
+    let right_paren = tokens.next().unwrap();
+    loop {
+        match tokens.peek() {
+            Some(t) if t.kind == TokenKind::RightBrace => {
+                tokens.next();
+                break;
+            }
+            Some(_) => stmts.push(declaration(tokens)?),
+            _ => Err(LoxSyntaxError {
+                message: String::from("Reached end of file without finding closing block"),
+                len: 0,
+                index: right_paren.index,
+            })?,
+        }
+    }
+
+    Ok(stmts)
 }
 
 fn print_statement(

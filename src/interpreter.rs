@@ -2,11 +2,41 @@ use std::{collections::HashMap, fmt::Display};
 
 use crate::ast::{BinOp, Expr, Literal, Stmt};
 
+pub struct Environment<'a> {
+    scope: HashMap<String, Option<LoxResult>>,
+    parent: Option<Box<&'a Environment<'a>>>,
+}
+
+impl<'a> Environment<'a> {
+    pub fn new() -> Self {
+        Environment {
+            scope: HashMap::new(),
+            parent: None,
+        }
+    }
+
+    pub fn with_parent(env: &'a Environment) -> Self {
+        Environment {
+            scope: HashMap::new(),
+            parent: Some(Box::new(env)),
+        }
+    }
+
+    pub fn get(&self, key: &str) -> Option<&Option<LoxResult>> {
+        if let Some(parent) = &self.parent {
+            self.scope.get(key).or_else(|| parent.get(key))
+        } else {
+            self.scope.get(key)
+        }
+    }
+
+    pub fn set(&mut self, key: String, value: Option<LoxResult>) {
+        self.scope.insert(key, value);
+    }
+}
+
 pub trait Interpretable {
-    fn eval(
-        &self,
-        environment: &mut HashMap<String, Option<LoxResult>>,
-    ) -> Result<LoxResult, LoxRuntimeError>;
+    fn eval(&self, environment: &mut Environment) -> Result<LoxResult, LoxRuntimeError>;
 }
 
 #[derive(PartialEq, PartialOrd, Debug, Clone)]
@@ -83,7 +113,7 @@ enum LoxType {
 impl Interpretable for Stmt {
     fn eval(
         &self,
-        environment: &mut HashMap<String, Option<LoxResult>>,
+        environment: &mut Environment,
     ) -> std::result::Result<LoxResult, LoxRuntimeError> {
         match self {
             Stmt::Expression(e) => e.eval(environment),
@@ -96,7 +126,14 @@ impl Interpretable for Stmt {
                     Some(e) => Some(e.eval(environment)?),
                     _ => None,
                 };
-                environment.insert(e.clone(), value);
+                environment.set(e.clone(), value);
+                Ok(LoxResult::Nil)
+            }
+            Stmt::Block(stmts) => {
+                let mut scoped_env = Environment::with_parent(environment);
+                for stmt in stmts {
+                    stmt.eval(&mut scoped_env)?;
+                }
                 Ok(LoxResult::Nil)
             }
         }
@@ -104,10 +141,7 @@ impl Interpretable for Stmt {
 }
 
 impl Interpretable for Expr {
-    fn eval(
-        &self,
-        env: &mut HashMap<String, Option<LoxResult>>,
-    ) -> std::result::Result<LoxResult, LoxRuntimeError> {
+    fn eval(&self, env: &mut Environment) -> std::result::Result<LoxResult, LoxRuntimeError> {
         let res = match self {
             Self::Variable { index, len, value } => match env.get(value) {
                 Some(value) => match value {
@@ -127,7 +161,7 @@ impl Interpretable for Expr {
                 value,
             } => {
                 let res = value.eval(env)?;
-                env.insert(key.clone(), Some(res));
+                env.set(key.clone(), Some(res));
                 LoxResult::Nil
             }
             Self::Literal {

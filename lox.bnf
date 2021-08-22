@@ -6,7 +6,9 @@ declaration ::= varDecl | statement;
 
 varDecl ::= "var" IDENTIFIER ( "=" expr )? ";" ;
 
-statement ::= exprStmt | printStmt ;
+statement ::= exprStmt | printStmt | block ;
+
+block     ::=  "{" declaration* "}" ;
 
 exprStmt  ::=  expr ";" ;
 

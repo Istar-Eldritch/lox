@@ -3,15 +3,12 @@ mod interpreter;
 mod lexer;
 mod parser;
 
-use std::{
-    collections::HashMap,
-    io::{stderr, Write},
-};
+use std::io::{stderr, Write};
 
 use clap::Clap;
 
 use crate::lexer::TokenKind;
-use interpreter::{Interpretable, LoxResult};
+use interpreter::{Environment, Interpretable};
 
 #[derive(Clap, Debug)]
 #[clap(name = "lox")]
@@ -30,7 +27,7 @@ fn main() {
 
 fn run_file(file_path: String) -> Result<(), ()> {
     let mut code = std::fs::read_to_string(file_path).expect("Error reading file");
-    let mut env = HashMap::new();
+    let mut env = Environment::new();
 
     execute(&mut code, &mut env).unwrap_or_else(|e| {
         let stde = stderr();
@@ -43,7 +40,7 @@ fn run_file(file_path: String) -> Result<(), ()> {
 fn repl() {
     let stdin = std::io::stdin();
     println!("Running repl");
-    let mut env = HashMap::new();
+    let mut env = Environment::new();
 
     loop {
         let mut buffer = String::new();
@@ -57,10 +54,7 @@ fn repl() {
     }
 }
 
-fn execute(
-    code: &mut str,
-    env: &mut HashMap<String, Option<LoxResult>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn execute(code: &mut str, env: &mut Environment) -> Result<(), Box<dyn std::error::Error>> {
     let mut tokens = lexer::tokenize(code)
         .filter(|t| t.kind != TokenKind::Whitespace)
         .peekable();
