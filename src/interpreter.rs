@@ -155,14 +155,22 @@ impl Interpretable for Expr {
                 }),
             }?,
             Self::Assign {
-                index: _,
-                len: _,
+                index,
+                len,
                 key,
                 value,
             } => {
-                let res = value.eval(env)?;
-                env.set(key.clone(), Some(res));
-                LoxResult::Nil
+                if let Some(_) = env.get(key) {
+                    let res = value.eval(env)?;
+                    env.set(key.clone(), Some(res.clone()));
+                    res
+                } else {
+                    Err(LoxRuntimeError {
+                        message: format!("Variable \"{}\" was not initialized", key),
+                        index: *index,
+                        len: *len,
+                    })?
+                }
             }
             Self::Literal {
                 value,
