@@ -1,12 +1,15 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
 use crate::ast::{BinOp, Expr, Literal, Stmt};
 
 pub trait Interpretable {
-    fn eval(&self) -> Result<LoxResult, LoxRuntimeError>;
+    fn eval(
+        &self,
+        environment: &mut HashMap<String, Option<LoxResult>>,
+    ) -> Result<LoxResult, LoxRuntimeError>;
 }
 
-#[derive(PartialEq, PartialOrd, Debug)]
+#[derive(PartialEq, PartialOrd, Debug, Clone)]
 pub enum LoxResult {
     Number(f64),
     Str(String),
@@ -78,11 +81,22 @@ enum LoxType {
 }
 
 impl Interpretable for Stmt {
-    fn eval(&self) -> std::result::Result<LoxResult, LoxRuntimeError> {
+    fn eval(
+        &self,
+        environment: &mut HashMap<String, Option<LoxResult>>,
+    ) -> std::result::Result<LoxResult, LoxRuntimeError> {
         match self {
-            Stmt::Expression(e) => e.eval(),
+            Stmt::Expression(e) => e.eval(environment),
             Stmt::Print(e) => {
-                e.eval().map(|r| println!("{}", r))?;
+                e.eval(environment).map(|r| println!("{}", r))?;
+                Ok(LoxResult::Nil)
+            }
+            Stmt::Variable(e, v) => {
+                let value = match v {
+                    Some(e) => Some(e.eval(environment)?),
+                    _ => None,
+                };
+                environment.insert(e.clone(), value);
                 Ok(LoxResult::Nil)
             }
         }
@@ -90,8 +104,32 @@ impl Interpretable for Stmt {
 }
 
 impl Interpretable for Expr {
-    fn eval(&self) -> std::result::Result<LoxResult, LoxRuntimeError> {
+    fn eval(
+        &self,
+        env: &mut HashMap<String, Option<LoxResult>>,
+    ) -> std::result::Result<LoxResult, LoxRuntimeError> {
         let res = match self {
+            Self::Variable { index, len, value } => match env.get(value) {
+                Some(value) => match value {
+                    Some(res) => Ok(res.clone()),
+                    _ => Ok(LoxResult::Nil),
+                },
+                _ => Err(LoxRuntimeError {
+                    message: format!("The variable was not initialized before usage"),
+                    index: *index,
+                    len: *index + *len,
+                }),
+            }?,
+            Self::Assign {
+                index: _,
+                len: _,
+                key,
+                value,
+            } => {
+                let res = value.eval(env)?;
+                env.insert(key.clone(), Some(res));
+                LoxResult::Nil
+            }
             Self::Literal {
                 value,
                 index: _,
@@ -109,7 +147,7 @@ impl Interpretable for Expr {
                 index,
                 len,
             } => {
-                let right = right.eval()?;
+                let right = right.eval(env)?;
 
                 match operator {
                     crate::ast::UnaryOp::LogicNegate => match right {
@@ -134,7 +172,7 @@ impl Interpretable for Expr {
                 expr,
                 index: _,
                 len: _,
-            } => expr.eval()?,
+            } => expr.eval(env)?,
             Self::Ternary {
                 condition,
                 left,
@@ -142,7 +180,7 @@ impl Interpretable for Expr {
                 index,
                 len,
             } => {
-                let condition = condition.eval()?;
+                let condition = condition.eval(env)?;
                 let condition = match condition {
                     LoxResult::Bool(b) => b,
                     r => Err(LoxRuntimeError {
@@ -152,9 +190,9 @@ impl Interpretable for Expr {
                     ), index: *index, len: *len})?,
                 };
                 if condition {
-                    left.eval()?
+                    left.eval(env)?
                 } else {
-                    right.eval()?
+                    right.eval(env)?
                 }
             }
             Self::Binary {
@@ -164,9 +202,9 @@ impl Interpretable for Expr {
                 index,
                 len,
             } => {
-                let l = left.eval()?;
-                let r = right.eval()?;
-                if l.get_type() != r.get_type() {
+                let l = left.eval(env)?;
+                let r = right.eval(env)?;
+                if l.get_type() != r.get_type() && operator != &BinOp::Comma {
                     Err(LoxRuntimeError {
                         message: format!(
                             "Cant operate on {:?} and {:?}",

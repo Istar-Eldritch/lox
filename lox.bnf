@@ -2,6 +2,10 @@
 
 program   ::= statement* EOF;
 
+declaration ::= varDecl | statement;
+
+varDecl ::= "var" IDENTIFIER ( "=" expr )? ";" ;
+
 statement ::= exprStmt | printStmt ;
 
 exprStmt  ::=  expr ";" ;
@@ -12,7 +16,9 @@ expr    ::= ternary ;
 
 ternary ::= comma "?" ternary ":" ternary ;
 
-comma   ::= eq ("," eq)* ;
+comma   ::= assign ("," assign)* ;
+
+assign  ::= IDENTIFIER "=" assign | eq
 
 eq      ::= comp ( ("!=" | "==") comp )* ;
 
@@ -24,4 +30,7 @@ factor  ::= unary ( ("/" | "*" ) factor )* ;
 
 unary   ::= ( "!" | "-" ) unary | primary ;
 
-primary ::= NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" ;
+primary ::= "true" | "false" | "nil" 
+        | NUMBER | STRING
+        | "(" expr ")"
+        | IDENTIFIER ;

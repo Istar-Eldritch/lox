@@ -3,7 +3,10 @@ mod interpreter;
 mod lexer;
 mod parser;
 
-use std::io::{stderr, stdout, Write};
+use std::{
+    collections::HashMap,
+    io::{stderr, Write},
+};
 
 use clap::Clap;
 
@@ -27,7 +30,9 @@ fn main() {
 
 fn run_file(file_path: String) -> Result<(), ()> {
     let mut code = std::fs::read_to_string(file_path).expect("Error reading file");
-    execute(&mut code).unwrap_or_else(|e| {
+    let mut env = HashMap::new();
+
+    execute(&mut code, &mut env).unwrap_or_else(|e| {
         let stde = stderr();
         let mut stdew = stde.lock();
         stdew.write_all(&format!("{}\n", e).into_bytes()).unwrap();
@@ -38,11 +43,13 @@ fn run_file(file_path: String) -> Result<(), ()> {
 fn repl() {
     let stdin = std::io::stdin();
     println!("Running repl");
+    let mut env = HashMap::new();
+
     loop {
         let mut buffer = String::new();
         stdin.read_line(&mut buffer).expect("Error reading input");
 
-        execute(&mut buffer).unwrap_or_else(|e| {
+        execute(&mut buffer, &mut env).unwrap_or_else(|e| {
             let stde = stderr();
             let mut stdew = stde.lock();
             stdew.write_all(&format!("{}\n", e).into_bytes()).unwrap();
@@ -50,13 +57,16 @@ fn repl() {
     }
 }
 
-fn execute(code: &mut str) -> Result<(), Box<dyn std::error::Error>> {
+fn execute(
+    code: &mut str,
+    env: &mut HashMap<String, Option<LoxResult>>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut tokens = lexer::tokenize(code)
         .filter(|t| t.kind != TokenKind::Whitespace)
         .peekable();
     let ast = parser::parse(&mut tokens)?;
     for stmt in ast {
-        stmt.eval()?;
+        stmt.eval(env)?;
     }
     Ok(())
 }

@@ -2,6 +2,7 @@
 pub enum Stmt {
     Expression(Expr),
     Print(Expr),
+    Variable(String, Option<Expr>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -33,6 +34,17 @@ pub enum Expr {
         condition: Box<Expr>,
         left: Box<Expr>,
         right: Box<Expr>,
+        index: usize,
+        len: usize,
+    },
+    Variable {
+        value: String,
+        index: usize,
+        len: usize,
+    },
+    Assign {
+        key: String,
+        value: Box<Expr>,
         index: usize,
         len: usize,
     },
@@ -71,6 +83,17 @@ impl Expr {
                 len: _,
                 index,
             } => *index,
+            Self::Variable {
+                value: _,
+                len: _,
+                index,
+            } => *index,
+            Self::Assign {
+                key: _,
+                value: _,
+                len: _,
+                index,
+            } => *index,
         }
     }
 
@@ -105,6 +128,17 @@ impl Expr {
                 right: _,
                 len,
                 index: _,
+            } => *len,
+            Self::Variable {
+                index: _,
+                len,
+                value: _,
+            } => *len,
+            Self::Assign {
+                index: _,
+                len,
+                key: _,
+                value: _,
             } => *len,
         }
     }

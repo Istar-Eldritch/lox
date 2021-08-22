@@ -136,7 +136,7 @@ fn next_token(code: &str, index: usize) -> Token {
             if let Ok(k) = KeywordKind::try_from(s) {
                 Keyword(k)
             } else {
-                Identifier
+                Identifier(s.into())
             }
         }
         Some(_) => Unknown,
@@ -259,7 +259,7 @@ pub enum TokenKind {
 
     // Lexemes
     Comment,
-    Identifier,
+    Identifier(String),
     Literal(LiteralKind),
     Keyword(KeywordKind),
 

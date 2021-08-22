@@ -5,12 +5,12 @@ use std::{
 };
 
 use crate::{
-    ast,
-    lexer::{Token, TokenKind},
-};
-use crate::{
     ast::Stmt,
     lexer::{self, KeywordKind},
+};
+use crate::{
+    ast::{self, Expr},
+    lexer::TokenKind,
 };
 
 #[derive(Debug)]
@@ -73,9 +73,63 @@ pub fn parse<P: Iterator<Item = lexer::Token> + Clone>(
 ) -> Result<Vec<ast::Stmt>, LoxSyntaxError> {
     let mut statements = Vec::new();
     while tokens.peek().is_some() {
-        statements.push(statement(tokens)?)
+        statements.push(declaration(tokens)?)
     }
     Ok(statements)
+}
+
+fn declaration(
+    tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
+) -> Result<ast::Stmt, LoxSyntaxError> {
+    match tokens.peek() {
+        Some(t) if t.kind == TokenKind::Keyword(KeywordKind::Var) => {
+            // var {TO PARSE}
+            let var_token = t.clone(); // Needed to avoid borrowing tokens, this variable is used for error handling
+            tokens.next();
+            match tokens.next() {
+                Some(t) => {
+                    let ident_token = t.clone();
+                    match ident_token.kind {
+                        TokenKind::Identifier(name) => {
+                            // var ident {TO PARSE}
+                            let value: Option<Expr> = match tokens.peek() {
+                                Some(t) if t.kind == TokenKind::Assign => {
+                                    // var ident = <value> {TO PARSE}
+                                    // var ident = {TO PARSE}
+                                    tokens.next();
+                                    Some(expression(tokens)?)
+                                }
+                                _ => None, // var ident {TO_PARSE}
+                            };
+                            match tokens.next() {
+                                Some(t) if t.kind == TokenKind::Semicolon => {
+                                    Ok(Stmt::Variable(name, value))
+                                }
+                                _ => Err(LoxSyntaxError {
+                                    message: String::from(
+                                        "Expected ';' after variable declaration",
+                                    ),
+                                    index: ident_token.index + ident_token.len,
+                                    len: 0,
+                                }),
+                            }
+                        }
+                        kind => Err(LoxSyntaxError {
+                            message: format!("Expected variable name but found {:?}", kind),
+                            index: ident_token.index,
+                            len: ident_token.len,
+                        }),
+                    }
+                }
+                _ => Err(LoxSyntaxError {
+                    message: String::from("Expected variable name"),
+                    index: var_token.index + var_token.len,
+                    len: 0,
+                }),
+            }
+        }
+        _ => statement(tokens),
+    }
 }
 
 fn statement(
@@ -168,10 +222,10 @@ fn ternary(
 fn comma(
     tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
 ) -> Result<ast::Expr, LoxSyntaxError> {
-    let mut expr = equality(tokens)?;
+    let mut expr = assign(tokens)?;
     while matches_any(tokens, vec![lexer::TokenKind::Comma]) {
         let operator: ast::BinOp = tokens.next().unwrap().try_into().unwrap();
-        let right = equality(tokens)?;
+        let right = assign(tokens)?;
         let index = expr.index();
         let len = right.index() + right.len() - expr.index();
         expr = ast::Expr::Binary {
@@ -183,6 +237,51 @@ fn comma(
         };
     }
     Ok(expr)
+}
+
+fn assign(
+    tokens: &mut Peekable<impl Iterator<Item = lexer::Token> + Clone>,
+) -> Result<ast::Expr, LoxSyntaxError> {
+    match tokens.peek() {
+        Some(t) => {
+            let ident_token = t.clone();
+            if let TokenKind::Identifier(name) = ident_token.kind {
+                // We want to look a couple tokens in the iter before confirming this is an asignation,
+                // so we need to make a copy to avoid moving the originals iter cursor
+                let mut tokens_copy = tokens.clone();
+                tokens_copy.next();
+                match tokens_copy.next() {
+                    Some(t) if t.kind == TokenKind::Assign => {
+                        tokens.next();
+                        tokens.next();
+                        match tokens.peek() {
+                            Some(_) => {
+                                let eqexpr = equality(tokens)?;
+                                let len = eqexpr.len();
+                                Ok(Expr::Assign {
+                                    key: name,
+                                    value: Box::new(eqexpr),
+                                    index: ident_token.index,
+                                    len,
+                                })
+                            }
+                            _ => Err(LoxSyntaxError {
+                                message: String::from(
+                                    "Expected expression after asignation identifier",
+                                ),
+                                index: t.index,
+                                len: t.len,
+                            }),
+                        }
+                    }
+                    _ => equality(tokens),
+                }
+            } else {
+                equality(tokens)
+            }
+        }
+        _ => equality(tokens),
+    }
 }
 
 fn equality(
@@ -312,6 +411,11 @@ fn primary(
             },
             Keyword(Nil) => ast::Expr::Literal {
                 value: ast::Literal::Nil,
+                index: t.index,
+                len: t.len,
+            },
+            Identifier(value) => ast::Expr::Variable {
+                value,
                 index: t.index,
                 len: t.len,
             },
