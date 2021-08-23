@@ -1,42 +1,59 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc};
 
 use crate::ast::{BinOp, Expr, Literal, Stmt};
 
-pub struct Environment<'a> {
+pub struct Environment {
     scope: HashMap<String, Option<LoxResult>>,
-    parent: Option<Box<&'a Environment<'a>>>,
+    parent: Option<Rc<RefCell<Environment>>>,
 }
 
-impl<'a> Environment<'a> {
-    pub fn new() -> Self {
+impl Environment {
+    pub fn new() -> Environment {
         Environment {
             scope: HashMap::new(),
             parent: None,
         }
     }
 
-    pub fn with_parent(env: &'a Environment) -> Self {
+    pub fn with_parent(env: Rc<RefCell<Environment>>) -> Environment {
         Environment {
             scope: HashMap::new(),
-            parent: Some(Box::new(env)),
+            parent: Some(env),
         }
     }
 
-    pub fn get(&self, key: &str) -> Option<&Option<LoxResult>> {
+    pub fn get(&self, key: &str) -> Option<Option<LoxResult>> {
         if let Some(parent) = &self.parent {
-            self.scope.get(key).or_else(|| parent.get(key))
+            self.scope
+                .get(key)
+                .map(|c| c.clone())
+                .or_else(|| parent.borrow().get(key).map(|c| c.clone()))
+            // .map(|c| c.clone())
         } else {
-            self.scope.get(key)
+            self.scope.get(key).map(|e| e.clone())
         }
     }
 
-    pub fn set(&mut self, key: String, value: Option<LoxResult>) {
+    pub fn declare(&mut self, key: String, value: Option<LoxResult>) {
         self.scope.insert(key, value);
+    }
+
+    /// Returns an error if the variable was not declared before
+    pub fn set(&mut self, key: &str, value: LoxResult) -> Result<(), ()> {
+        if self.scope.contains_key(key) {
+            self.scope.insert(key.into(), Some(value));
+            Ok(())
+        } else if let Some(parent) = &self.parent {
+            parent.borrow_mut().set(key, value)?;
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 }
 
 pub trait Interpretable {
-    fn eval(&self, environment: &mut Environment) -> Result<LoxResult, LoxRuntimeError>;
+    fn eval(&self, environment: Rc<RefCell<Environment>>) -> Result<LoxResult, LoxRuntimeError>;
 }
 
 #[derive(PartialEq, PartialOrd, Debug, Clone)]
@@ -113,7 +130,7 @@ enum LoxType {
 impl Interpretable for Stmt {
     fn eval(
         &self,
-        environment: &mut Environment,
+        environment: Rc<RefCell<Environment>>,
     ) -> std::result::Result<LoxResult, LoxRuntimeError> {
         match self {
             Stmt::Expression(e) => e.eval(environment),
@@ -123,16 +140,16 @@ impl Interpretable for Stmt {
             }
             Stmt::Variable(e, v) => {
                 let value = match v {
-                    Some(e) => Some(e.eval(environment)?),
+                    Some(e) => Some(e.eval(environment.clone())?),
                     _ => None,
                 };
-                environment.set(e.clone(), value);
+                environment.borrow_mut().declare(e.clone(), value);
                 Ok(LoxResult::Nil)
             }
             Stmt::Block(stmts) => {
-                let mut scoped_env = Environment::with_parent(environment);
+                let scoped_env = Rc::new(RefCell::new(Environment::with_parent(environment)));
                 for stmt in stmts {
-                    stmt.eval(&mut scoped_env)?;
+                    stmt.eval(scoped_env.clone())?;
                 }
                 Ok(LoxResult::Nil)
             }
@@ -141,9 +158,12 @@ impl Interpretable for Stmt {
 }
 
 impl Interpretable for Expr {
-    fn eval(&self, env: &mut Environment) -> std::result::Result<LoxResult, LoxRuntimeError> {
+    fn eval(
+        &self,
+        env: Rc<RefCell<Environment>>,
+    ) -> std::result::Result<LoxResult, LoxRuntimeError> {
         let res = match self {
-            Self::Variable { index, len, value } => match env.get(value) {
+            Self::Variable { index, len, value } => match env.borrow().get(value) {
                 Some(value) => match value {
                     Some(res) => Ok(res.clone()),
                     _ => Ok(LoxResult::Nil),
@@ -160,9 +180,14 @@ impl Interpretable for Expr {
                 key,
                 value,
             } => {
+                let res = value.eval(env.clone())?;
+                let mut env = env.borrow_mut();
                 if let Some(_) = env.get(key) {
-                    let res = value.eval(env)?;
-                    env.set(key.clone(), Some(res.clone()));
+                    env.set(key, res.clone()).map_err(|_| LoxRuntimeError {
+                        message: format!("Variable \"{}\" not initialized", key),
+                        index: *index,
+                        len: *len,
+                    })?;
                     res
                 } else {
                     Err(LoxRuntimeError {
@@ -222,7 +247,7 @@ impl Interpretable for Expr {
                 index,
                 len,
             } => {
-                let condition = condition.eval(env)?;
+                let condition = condition.eval(env.clone())?;
                 let condition = match condition {
                     LoxResult::Bool(b) => b,
                     r => Err(LoxRuntimeError {
@@ -244,7 +269,7 @@ impl Interpretable for Expr {
                 index,
                 len,
             } => {
-                let l = left.eval(env)?;
+                let l = left.eval(env.clone())?;
                 let r = right.eval(env)?;
                 if l.get_type() != r.get_type() && operator != &BinOp::Comma {
                     Err(LoxRuntimeError {
